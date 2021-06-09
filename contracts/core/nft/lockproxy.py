@@ -2,21 +2,19 @@ OntCversion = '2.0.0'
 """
 Smart contract for locking and unlocking cross chain NFT asset between Ontology and other chains
 """
-
+from ontology.interop.Ontology.Native import Invoke
 from ontology.interop.System.Action import RegisterAction
-from ontology.interop.System.ExecutionEngine import GetExecutingScriptHash
+from ontology.interop.System.ExecutionEngine import GetExecutingScriptHash, GetCallingScriptHash
 from ontology.interop.System.Storage import Put, GetContext, Get
 from ontology.interop.Ontology.Runtime import Base58ToAddress
 from ontology.interop.System.Runtime import CheckWitness, Notify, Serialize, Deserialize
 from ontology.builtins import concat, state, append, remove
 from ontology.interop.System.App import DynamicAppCall
 
-
-
 # Key prefix
 OPERATOR_PREFIX = "Operator"
 PROXY_HASH_PREFIX = "ProxyHash"
-
+ASSET_HASH_PREFIX = "AssetHash"
 
 # Common
 ctx = GetContext()
@@ -24,12 +22,13 @@ SelfContractAddress = GetExecutingScriptHash()
 
 Operator = Base58ToAddress("xxx")
 ZeroAddress = bytearray(b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00')
-CrossChainContractAddress = bytearray(b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x09')
+CrossChainContractAddress = bytearray(
+    b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x09')
 
-
-# Events 
+# Events
 UnlockEvent = RegisterAction("unlock", "toAssetHash", "toAddress", "amount")
 LockEvent = RegisterAction("lock", "fromAssetHash", "fromAddress", "toAssetHash", "toAddress", "toChainId", "tokenId")
+
 
 def Main(operation, args):
     return True
@@ -40,13 +39,23 @@ def init():
     Set initial contract operator
     """
     assert (len(Get(ctx, OPERATOR_PREFIX)) == 0)
-    Put(ctx, OPERATOR_PREFIX, operator)
+    Put(ctx, OPERATOR_PREFIX, Operator)
     return True
-    
+
+
+def _deserializeCallData(buf):
+    offset = 0
+    res = NextVarBytes(buf, offset)
+    address = res[0]
+
+    res = NextUint64(buf, res[1])
+    chainId = res[0]
+    return [address, chainId]
+
 
 def _serializeArgs(args):
     assert (len(args) == 4)
-    
+
     # asset hash
     buf = WriteVarBytes(args[0], None)
     # address
@@ -55,27 +64,40 @@ def _serializeArgs(args):
     buf = WriteUint255(args[2], buf)
     # token URI
     buf = WriteVarBytes(args[3], buf)
-    
+
     return buf
 
 
-def _deserialzieArgs(buf):
+def _deserializeArgs(buf):
     offset = 0
     res = NextVarBytes(buf, offset)
     assetHash = res[0]
 
     res = NextVarBytes(buf, res[1])
     toAddress = res[0]
-    
+
     res = NextUint255(buf, res[1])
     tokenId = res[0]
-    
+
     res = NextVarBytes(buf, res[1])
     tokenURI = res[0]
 
     return [assetHash, toAddress, tokenId, tokenURI]
 
-    
+
+def bindAssetHash(fromAssetHash, toChainId, toAssetHash):
+    # TODO? assert (_addFromAssetHash(fromAssetHash))
+
+    Put(GetContext(), concat(ASSET_HASH_PREFIX, concat(fromAssetHash, toChainId)), toAssetHash)
+    curBalance = getBalanceFor(fromAssetHash)
+    Notify(["bindAssetHash", fromAssetHash, toChainId, toAssetHash, curBalance])
+    return True
+
+
+def getAssetHash(fromAssetHash, toChainId):
+    return Get(ctx, concat(ASSET_HASH_PREFIX, concat(fromAssetHash, toChainId)))
+
+
 def bindProxyHash(chainId, targetProxyHash):
     """
     Bind chain id with proxy hash
@@ -86,7 +108,8 @@ def bindProxyHash(chainId, targetProxyHash):
     assert (CheckWitness(ctx, OPERATOR_PREFIX))
     Put(ctx, concat(PROXY_HASH_PREFIX, chainId), targetProxyHash)
     return True
-    
+
+
 def getProxyHash(chainId):
     """
     Get bound chain proxy hash from context
@@ -94,16 +117,18 @@ def getProxyHash(chainId):
     :return: chain bound proxy hash
     """
     return Get(ctx, concat(PROXY_HASH_PREFIX, chainId))
-    
+
+
 def isAddress(address):
     """
     Validate address, check length, and not zero address
     :param address: address
     :return: True or raise exception
     """
-    assert (len(address) == 20 and address != ZeroAddress)
+    assert (len(address) == 20 and address != ZeroAddress), "Invalid address"
     return True
-    
+
+
 def onERC721Received(operator, fromAddress, tokenId, params):
     """
     On erc721 asset received, trigger the cross chain contract call.
@@ -113,14 +138,24 @@ def onERC721Received(operator, fromAddress, tokenId, params):
     :param params: argument list [assetHash, address, tokenId, tokenURI]
     :return: True or raise exception
     """
+    fromAssetHash = GetCallingScriptHash()
     assert (CheckWitness(fromAddress))
-    
+    toAddress, toChainId = _deserializeCallData(params)
+    assert (isAddress(toAddress))
+
+    toAssetHash = getAssetHash(fromAssetHash, toChainId)
+    owner = DynamicAppCall(fromAssetHash, "ownerOf", tokenId)
+    assert (owner == SelfContractAddress), "wrong owner for this token ID"
+
+    tokenURI = DynamicAppCall(fromAssetHash, "UriOf", tokenId)
+    toProxyHash = getProxyHash(toChainId)
     txData = _serializeArgs([toAssetHash, toAddress, tokenId, tokenURI])
     args = state(toChainId, toProxyHash, "unlock", txData)
     assert (Invoke(0, CrossChainContractAddress, "createCrossChainTx", args))
-    
-    LockEvent()
+
+    LockEvent(fromAssetHash, fromAddress, toProxyHash, toAddress, toChainId, tokenId)
     return True
+
 
 def unlock(params, fromContractAddr, fromChainId):
     """
@@ -132,11 +167,11 @@ def unlock(params, fromContractAddr, fromChainId):
     """
     assert (CheckWitness(CrossChainContractAddress))
     assert (getProxyHash(fromChainId) == fromContractAddr)
-    
+
     assetHash, address, tokenId, tokenURI = _deserializeArgs(params)
     assert (isAddress(assetHash))
     assert (isAddress(address))
-    
+
     owner = DynamicAppCall(assetHash, "ownerOf", tokenId)
     if owner != ZeroAddress:
         assert (owner == SelfContractAddress)
@@ -144,10 +179,11 @@ def unlock(params, fromContractAddr, fromChainId):
     else:
         res = DynamicAppCall(assetHash, "mintWithURI", [address, tokenId, tokenURI])
     assert (res and res == b'\x01')
-    
+
     UnlockEvent(assetHash, address, tokenId)
     return True
-    
+
+
 def WriteBool(v, buff):
     if v == True:
         buff = concat(buff, b'\x01')
@@ -369,4 +405,3 @@ def _getFirstNonZeroPosFromR2L(_bs):
             else:
                 return bytesLen - i
     return -1
-
