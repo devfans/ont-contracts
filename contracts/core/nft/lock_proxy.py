@@ -30,10 +30,50 @@ ONGAddress = bytearray(b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x0
 # Events
 UnlockEvent = RegisterAction("unlock", "toAssetHash", "toAddress", "amount")
 LockEvent = RegisterAction("lock", "fromAssetHash", "fromAddress", "toAssetHash", "toAddress", "toChainId", "tokenId")
+TransferOperatorEvent = RegisterAction("transferOperator", "oldOperator", "newOperator")
 
 
 def Main(operation, args):
-    return True
+    if operation == "init":
+        return init()
+    if operation == "bindProxyHash":
+        assert len(args) == 2, "Invalid args length for bindProxyHash"
+        toChainId = args[0]
+        targetProxyHash = args[1]
+        return bindProxyHash(toChainId, targetProxyHash)
+    if operation == "bindAssetHash":
+        assert len(args) == 3, "Invalid args length for bindAssetHash"
+        fromAssetHash = args[0]
+        toChainId = args[1]
+        toAssetHash = args[2]
+        return bindAssetHash(fromAssetHash, toChainId, toAssetHash)
+    if operation == "getProxyHash":
+        assert len(args) == 1, "Invalid args length for getProxyHash"
+        toChainId = args[0]
+        return getProxyHash(toChainId)
+    if operation == "getAssetHash":
+        assert len(args) == 2, "Invalid args length for getAssetHash"
+        fromAssetHash = args[0]
+        toChainId = args[1]
+        return getAssetHash(fromAssetHash, toChainId)
+    if operation == "unlock":
+        assert len(args) == 3, "Invalid args length for unlock"
+        params = args[0]
+        fromContractAddr = args[1]
+        fromChainId = args[2]
+        return unlock(params, fromContractAddr, fromChainId)
+    if operation == "getBalanceFor":
+        assert len(args)  == 1, "Invalid args length for getBalanceFor"
+        return getBalanceFor(args[0])
+    if operation == "removeFromAssetHash":
+        assert len(args) == 1, "Invalid args length for removeFromAssetHash"
+        index = args[0]
+        return removeFromAssetHash(index)
+    if operation == "addFromAssetHash":
+        assert len(args) == 1, "Invalid args length for addFromAssetHash"
+        fromAssetHash = args[0]
+        return addFromAssetHash(fromAssetHash)
+    return False
 
 
 def init():
@@ -44,6 +84,18 @@ def init():
     Put(ctx, OPERATOR_PREFIX, Operator)
     return True
 
+def transferOperator(newOperator):
+    """
+    Transfer operator to new owner
+    :param newOperator: new operator
+    :return: True
+    """
+    oldOperator = Get(ctx, OPERATOR_PREFIX)
+    assert CheckWitness(oldOperator), "Invalid witness"
+    assert isValidAddress(newOperator)
+    Put(ctx, OPERATOR_PREFIX, newOperator)
+    TransferOperatorEvent(oldOperator, newOperator)
+    return True
 
 def getBalanceFor(assetHash):
     """
