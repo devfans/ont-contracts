@@ -15,15 +15,17 @@ from ontology.interop.System.App import DynamicAppCall
 OPERATOR_PREFIX = "Operator"
 PROXY_HASH_PREFIX = "ProxyHash"
 ASSET_HASH_PREFIX = "AssetHash"
+ASSET_LIST_PREFIX = "AssetList"
 
 # Common
 ctx = GetContext()
 SelfContractAddress = GetExecutingScriptHash()
 
 Operator = Base58ToAddress("xxx")
+CrossChainContractAddress = bytearray(b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x09')
 ZeroAddress = bytearray(b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00')
-CrossChainContractAddress = bytearray(
-    b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x09')
+ONTAddress = bytearray(b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01')
+ONGAddress = bytearray(b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x02')
 
 # Events
 UnlockEvent = RegisterAction("unlock", "toAssetHash", "toAddress", "amount")
@@ -38,8 +40,175 @@ def init():
     """
     Set initial contract operator
     """
-    assert (len(Get(ctx, OPERATOR_PREFIX)) == 0)
+    assert len(Get(ctx, OPERATOR_PREFIX)) == 0, "Contract already initialized"
     Put(ctx, OPERATOR_PREFIX, Operator)
+    return True
+
+
+def getBalanceFor(assetHash):
+    """
+    Get contract balance of asset
+    :param assetHash: asset hash
+    :return: asset balance
+    """
+    if assetHash == ONGAddress or assetHash == ONTAddress:
+        return Invoke(0, assetHash, "balanceOf", SelfContractAddress)
+    else:
+        return DynamicAppCall(assetHash, "balanceOf", [SelfContractAddress])
+
+def addFromAssetHash(fromAssetHash):
+    """
+    Save from asset hash into asset hash list if not yet
+    :param fromAssetHash: source asset hash
+    :return: True
+    """
+    assert CheckWitness(Get(ctx, OPERATOR_PREFIX)), "Invalid contract operator"
+
+    data = Get(ctx, ASSET_LIST_PREFIX)
+    if not data:
+        assetList = []
+    else:
+        assetList = Deserialize(data)
+    if fromAssetHash not in assetList:
+        assetList.append(fromAssetHash)
+        Put(ctx, ASSET_LIST_PREFIX, Serialize(assetList))
+        Notify(["addFromAssetHash", fromAssetHash])
+    return True
+
+def removeFromAssetHash(assetHash):
+    """
+    Remove asset hash from asset hash list
+    :param assetHash: source asset hash
+    :return: True
+    """
+    assert CheckWitness(Get(ctx, OPERATOR_PREFIX)), "Invalid contract operator"
+
+    data = Get(ctx, ASSET_LIST_PREFIX)
+    if not data:
+        return True
+    assetList = Deserialize(data)
+    if assetHash in assetList:
+        assetHash.remove(assetHash)
+        Put(ctx, ASSET_LIST_PREFIX, Serialize(assetList))
+        Notify(["removeFromAssetHash", assetHash])
+    return True
+
+def getFromAssetHashList():
+    """
+    Fetch fromAsset hash list
+    :return: list of fromAssetHash
+    """
+    data = Get(ctx, ASSET_LIST_PREFIX)
+    if not data:
+        return []
+    return Deserialize(data)
+
+def bindAssetHash(fromAssetHash, toChainId, toAssetHash):
+    """
+    Bind target asset hash
+    :param fromAssetHash: Source asset hash
+    :param toChainId: targetChainId
+    :param toAssetHash: target asset hash
+    :return: True
+    """
+    assert CheckWitness(Get(ctx, OPERATOR_PREFIX)), "Invalid contract operator"
+    assert addFromAssetHash(fromAssetHash)
+    Put(ctx, concat(ASSET_HASH_PREFIX, concat(fromAssetHash, toChainId)), toAssetHash)
+    curBalance = getBalanceFor(fromAssetHash)
+    Notify(["bindAssetHash", fromAssetHash, toChainId, toAssetHash, curBalance])
+    return True
+
+def getAssetHash(fromAssetHash, toChainId):
+    """
+    Get target asset hash with from asset hash and target chain id
+    :param fromAssetHash: Source asset hash
+    :param toChainId: targetChainId
+    :return: target asset hash
+    """
+    return Get(ctx, concat(ASSET_HASH_PREFIX, concat(fromAssetHash, toChainId)))
+
+def bindProxyHash(chainId, targetProxyHash):
+    """
+    Bind chain id with proxy hash
+    :param toChainId: chain id
+    :param targetProxyHash: proxy hash
+    :return: True
+    """
+    assert CheckWitness(ctx, OPERATOR_PREFIX), "Invalid operator"
+    Put(ctx, concat(PROXY_HASH_PREFIX, chainId), targetProxyHash)
+    return True
+
+def getProxyHash(chainId):
+    """
+    Get bound chain proxy hash from context
+    :param chainId: chain id
+    :return: chain bound proxy hash
+    """
+    return Get(ctx, concat(PROXY_HASH_PREFIX, chainId))
+
+
+def isValidAddress(address):
+    """
+    Validate address, check length, and not zero address
+    :param address: address
+    :return: True or raise exception
+    """
+    assert (len(address) == 20 and address != ZeroAddress), "Invalid address"
+    return True
+
+
+def onERC721Received(operator, fromAddress, tokenId, params):
+    """
+    On erc721 asset received, trigger the cross chain contract call.
+    :param operator: operator address
+    :param fromAddress: from address
+    :pram tokenId: token id
+    :param params: argument list [assetHash, address, tokenId, tokenURI]
+    :return: True or raise exception
+    """
+    fromAssetHash = GetCallingScriptHash()
+    assert (CheckWitness(fromAddress))
+    toAddress, toChainId = _deserializeCallData(params)
+    assert (isValidAddress(toAddress))
+
+    toAssetHash = getAssetHash(fromAssetHash, toChainId)
+    owner = DynamicAppCall(fromAssetHash, "ownerOf", tokenId)
+    assert (owner == SelfContractAddress), "wrong owner for this token ID"
+
+    tokenURI = DynamicAppCall(fromAssetHash, "UriOf", tokenId)
+    toProxyHash = getProxyHash(toChainId)
+    txData = _serializeArgs([toAssetHash, toAddress, tokenId, tokenURI])
+    args = state(toChainId, toProxyHash, "unlock", txData)
+    assert (Invoke(0, CrossChainContractAddress, "createCrossChainTx", args))
+
+    LockEvent(fromAssetHash, fromAddress, toProxyHash, toAddress, toChainId, tokenId)
+    return True
+
+
+def unlock(params, fromContractAddr, fromChainId):
+    """
+    Unlock nft asset from proxy lock to finish the cross chain transaction
+    :param params: packed argument list [assetHash, address, tokenId, tokenURI]
+    :param fromContractAddr: the invoker contract address
+    :param: fromChainId: source chain id on poly network
+    :returns:
+    """
+    assert CheckWitness(CrossChainContractAddress), "Invalid witness"
+    assert getProxyHash(fromChainId) == fromContractAddr, "Invalid chain proxy contract address"
+
+    assetHash, address, tokenId, tokenURI = _deserializeArgs(params)
+    assert isValidAddress(assetHash)
+    assert isValidAddress(address)
+
+    owner = DynamicAppCall(assetHash, "ownerOf", tokenId)
+    if owner != ZeroAddress:
+        assert owner == SelfContractAddress, "Asset unlock failed"
+        res = DynamicAppCall(assetHash, "safeTransferFrom", [SelfContractAddress, address, tokenId])
+    else:
+        res = DynamicAppCall(assetHash, "mintWithURI", [address, tokenId, tokenURI])
+    assert (res and res == b'\x01')
+
+    UnlockEvent(assetHash, address, tokenId)
     return True
 
 
@@ -54,7 +223,7 @@ def _deserializeCallData(buf):
 
 
 def _serializeArgs(args):
-    assert (len(args) == 4)
+    assert len(args) == 4, "Invalid args length"
 
     # asset hash
     buf = WriteVarBytes(args[0], None)
@@ -83,106 +252,6 @@ def _deserializeArgs(buf):
     tokenURI = res[0]
 
     return [assetHash, toAddress, tokenId, tokenURI]
-
-
-def bindAssetHash(fromAssetHash, toChainId, toAssetHash):
-    # TODO? assert (_addFromAssetHash(fromAssetHash))
-
-    Put(GetContext(), concat(ASSET_HASH_PREFIX, concat(fromAssetHash, toChainId)), toAssetHash)
-    curBalance = getBalanceFor(fromAssetHash)
-    Notify(["bindAssetHash", fromAssetHash, toChainId, toAssetHash, curBalance])
-    return True
-
-
-def getAssetHash(fromAssetHash, toChainId):
-    return Get(ctx, concat(ASSET_HASH_PREFIX, concat(fromAssetHash, toChainId)))
-
-
-def bindProxyHash(chainId, targetProxyHash):
-    """
-    Bind chain id with proxy hash
-    :param toChainId: chain id
-    :param targetProxyHash: proxy hash
-    :return: True
-    """
-    assert (CheckWitness(ctx, OPERATOR_PREFIX))
-    Put(ctx, concat(PROXY_HASH_PREFIX, chainId), targetProxyHash)
-    return True
-
-
-def getProxyHash(chainId):
-    """
-    Get bound chain proxy hash from context
-    :param toChainId: chain id
-    :return: chain bound proxy hash
-    """
-    return Get(ctx, concat(PROXY_HASH_PREFIX, chainId))
-
-
-def isAddress(address):
-    """
-    Validate address, check length, and not zero address
-    :param address: address
-    :return: True or raise exception
-    """
-    assert (len(address) == 20 and address != ZeroAddress), "Invalid address"
-    return True
-
-
-def onERC721Received(operator, fromAddress, tokenId, params):
-    """
-    On erc721 asset received, trigger the cross chain contract call.
-    :param operator: operator address
-    :param fromAddress: from address
-    :pram tokenId: token id
-    :param params: argument list [assetHash, address, tokenId, tokenURI]
-    :return: True or raise exception
-    """
-    fromAssetHash = GetCallingScriptHash()
-    assert (CheckWitness(fromAddress))
-    toAddress, toChainId = _deserializeCallData(params)
-    assert (isAddress(toAddress))
-
-    toAssetHash = getAssetHash(fromAssetHash, toChainId)
-    owner = DynamicAppCall(fromAssetHash, "ownerOf", tokenId)
-    assert (owner == SelfContractAddress), "wrong owner for this token ID"
-
-    tokenURI = DynamicAppCall(fromAssetHash, "UriOf", tokenId)
-    toProxyHash = getProxyHash(toChainId)
-    txData = _serializeArgs([toAssetHash, toAddress, tokenId, tokenURI])
-    args = state(toChainId, toProxyHash, "unlock", txData)
-    assert (Invoke(0, CrossChainContractAddress, "createCrossChainTx", args))
-
-    LockEvent(fromAssetHash, fromAddress, toProxyHash, toAddress, toChainId, tokenId)
-    return True
-
-
-def unlock(params, fromContractAddr, fromChainId):
-    """
-    Unlock nft asset from proxy lock to finish the cross chain transaction
-    :param params: packed argument list [assetHash, address, tokenId, tokenURI]
-    :param fromContractAddr: the invoker contract address
-    :param: fromChainId: source chain id on poly network
-    :returns:
-    """
-    assert (CheckWitness(CrossChainContractAddress))
-    assert (getProxyHash(fromChainId) == fromContractAddr)
-
-    assetHash, address, tokenId, tokenURI = _deserializeArgs(params)
-    assert (isAddress(assetHash))
-    assert (isAddress(address))
-
-    owner = DynamicAppCall(assetHash, "ownerOf", tokenId)
-    if owner != ZeroAddress:
-        assert (owner == SelfContractAddress)
-        res = DynamicAppCall(assetHash, "safeTransferFrom", [SelfContractAddress, address, tokenId])
-    else:
-        res = DynamicAppCall(assetHash, "mintWithURI", [address, tokenId, tokenURI])
-    assert (res and res == b'\x01')
-
-    UnlockEvent(assetHash, address, tokenId)
-    return True
-
 
 def WriteBool(v, buff):
     if v == True:
