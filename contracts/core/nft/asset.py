@@ -31,9 +31,9 @@ ZeroAddress = bytearray(b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x
 Operator = Base58ToAddress("xx")
 
 # Event
-TransferOwnershipEvent = RegisterAction("transferOwnership", "oldOwner", "newOwner")
 TransferEvent = RegisterAction("transfer", "from", "to", "tokenId")
 ApprovalEvent = RegisterAction("approval", "from", "to", "tokenId")
+ApprovalForAllEvent = RegisterAction("approvalForAll", "from", "to", "approved")
 
 def Main(operation, args):
     if operation == 'init':
@@ -137,7 +137,7 @@ def transferOwnerShip(newOwner):
     assert CheckWitness(oldOwner), "Invalid witness"
     assert isValidAddress(newOwner)
     Put(ctx, OPERATOR_PREFIX, newOwner)
-    TransferOwnershipEvent(oldOwner, newOwner)
+    Notify(["transOwnerShip", oldOwner, newOwner])
     return True
 
 def baseURI ():
@@ -197,10 +197,9 @@ def approve(toAddress, tokenId):
     tokenOwner = ownerOf(tokenId)
     if CheckWitness(tokenOwner) == False:
         return False
-    assert isValidAddress(toAddress)
-
+    assert len(toAddress) == 20, "Invalid toAddress"
     Put(ctx, concat(APPROVAL_PREFIX, tokenId), toAddress)
-    Notify(['approval', tokenOwner, toAddress, tokenId])
+    ApprovalEvent(tokenOwner, toAddress, tokenId)
     return True
 
 def ownerOf(tokenId):
@@ -236,40 +235,6 @@ def clearApproved(tokenId):
 
 def totalSupply():
     return Get(ctx, TOTAL_SUPPLY_PREFIX)
-
-def transferOwnerShip(toAddress, tokenId):
-    """
-    transfer the approved tokenId token to toAcct
-    the invoker can be the owner or the approved account
-    toAcct can be any address
-    :param toAddress: the account that will be assigned as the new owner of tokenId
-    :param tokenId: the tokenId token will be assigned to toAcct
-    :return: False or True
-    """
-    assert isValidAddress(toAddress)
-    tokenOwner = ownerOf(tokenId)
-
-    if not tokenOwner:
-        return False
-    approveKey = concat(APPROVAL_PREFIX, tokenId)
-    approvedAcct = Get(ctx, approveKey)
-
-    if not CheckWitness(tokenOwner) and not CheckWitness(approvedAcct):
-        return False
-
-    Delete(ctx, approveKey)
-    ownerKey = concat(TOKEN_OWNER_PREFIX, tokenId)
-    Put(ctx, ownerKey, toAddress)
-
-    fromBalance = balanceOf(tokenOwner)
-    toBalance = balanceOf(toAddress)
-    # to avoid overflow
-    if fromBalance >= 1 and toBalance < toBalance + 1:
-        Put(ctx, concat(OWNER_BALANCE_PREFIX, tokenOwner), fromBalance - 1)
-        Put(ctx, concat(OWNER_BALANCE_PREFIX, toAddress), toBalance + 1)
-
-    Notify(['transfer', tokenOwner, toAddress, tokenId])
-    return True
 
 def queryTokenIDByIndex(idx):
     """
@@ -325,7 +290,7 @@ def takeOwnership(toAddress, tokenId):
     Put(ctx, concat(OWNER_BALANCE_PREFIX, tokenOwner), fromBalance - 1)
     Put(ctx, concat(OWNER_BALANCE_PREFIX, toAddress), toBalance + 1)
 
-    Notify(['transfer', tokenOwner, toAddress, tokenId])
+    TransferEvent(tokenOwner, toAddress, tokenId)
     return True
 
 def transfer(toAddress, tokenId):
@@ -355,7 +320,7 @@ def transfer(toAddress, tokenId):
     # set the owner of tokenID to toAcct
     Put(ctx, ownerKey, toAddress)
 
-    Notify(['transfer', fromAcct, toAddress, tokenId])
+    TransferEvent(fromAcct, toAddress, tokenId)
     return True
 
 def transferMulti(args):
@@ -400,6 +365,7 @@ def approvalForAll(owner, toAddress, approval):
     assert isValidAddress(toAddress)
     assert CheckWitness(owner), "Invalid owner witness"
     Put(ctx, ownerApprovalKey(owner, toAddress), approval)
+    ApprovalForAllEvent(owner, toAddress, approval)
     return True
 
 def getApprovalForAll(owner, operator):
