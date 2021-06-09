@@ -14,8 +14,8 @@ from ontology.interop.System.App import DynamicAppCall
 # Key prefix
 OPERATOR_PREFIX = "Operator"
 PROXY_HASH_PREFIX = "ProxyHash"
-ASSET_HASH_PREFIX = "AssetHash"
-ASSET_LIST_PREFIX = "AssetList"
+ASSET_HASH_PREFIX = "AssetHash"    # target asset hash
+ASSET_LIST_PREFIX = "AssetList"    # from asset hash list
 
 # Common
 ctx = GetContext()
@@ -167,9 +167,9 @@ def onERC721Received(operator, fromAddress, tokenId, params):
     :return: True or raise exception
     """
     fromAssetHash = GetCallingScriptHash()
-    assert (CheckWitness(fromAddress))
+    assert CheckWitness(fromAddress), "Invalid witness"
     toAddress, toChainId = _deserializeCallData(params)
-    assert (isValidAddress(toAddress))
+    assert isValidAddress(toAddress)
 
     toAssetHash = getAssetHash(fromAssetHash, toChainId)
     owner = DynamicAppCall(fromAssetHash, "ownerOf", tokenId)
@@ -179,7 +179,7 @@ def onERC721Received(operator, fromAddress, tokenId, params):
     toProxyHash = getProxyHash(toChainId)
     txData = _serializeArgs([toAssetHash, toAddress, tokenId, tokenURI])
     args = state(toChainId, toProxyHash, "unlock", txData)
-    assert (Invoke(0, CrossChainContractAddress, "createCrossChainTx", args))
+    assert Invoke(0, CrossChainContractAddress, "createCrossChainTx", args), "createCrossChainTx failed"
 
     LockEvent(fromAssetHash, fromAddress, toProxyHash, toAddress, toChainId, tokenId)
     return True
@@ -202,15 +202,15 @@ def unlock(params, fromContractAddr, fromChainId):
 
     owner = DynamicAppCall(assetHash, "ownerOf", tokenId)
     if owner != ZeroAddress:
-        assert owner == SelfContractAddress, "Asset unlock failed"
+        assert owner == SelfContractAddress, "Asset unlock failed for invalid owner"
         res = DynamicAppCall(assetHash, "safeTransferFrom", [SelfContractAddress, address, tokenId])
+        assert (res and res == b'\x01'), "safeTransferFrom failed"
     else:
         res = DynamicAppCall(assetHash, "mintWithURI", [address, tokenId, tokenURI])
-    assert (res and res == b'\x01')
+        assert (res and res == b'\x01'), "mintWithURI failed"
 
     UnlockEvent(assetHash, address, tokenId)
     return True
-
 
 def _deserializeCallData(buf):
     offset = 0
