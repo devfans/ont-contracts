@@ -364,7 +364,10 @@ def approvalForAll(owner, toAddress, approval):
     assert isValidAddress(owner)
     assert isValidAddress(toAddress)
     assert CheckWitness(owner), "Invalid owner witness"
-    Put(ctx, ownerApprovalKey(owner, toAddress), approval)
+    value = 0
+    if approval:
+        value = 1
+    Put(ctx, ownerApprovalKey(owner, toAddress), value)
     ApprovalForAllEvent(owner, toAddress, approval)
     return True
 
@@ -375,5 +378,4 @@ def getApprovalForAll(owner, operator):
     :param operator: operator address
     :return: True or False
     """
-    res = Get(ownerApprovalKey(owner, operator))
-    return res and res == b'\x01'
+    return Get(ctx, ownerApprovalKey(owner, operator)) == 1

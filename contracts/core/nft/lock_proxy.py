@@ -231,8 +231,15 @@ def onERC721Received(operator, fromAddress, tokenId, params):
     toProxyHash = getProxyHash(toChainId)
     txData = _serializeArgs([toAssetHash, toAddress, tokenId, tokenURI])
     args = state(toChainId, toProxyHash, "unlock", txData)
-    assert Invoke(0, CrossChainContractAddress, "createCrossChainTx", args), "createCrossChainTx failed"
 
+    # Lock the nft token
+    res = DynamicAppCall(fromAssetHash, "transfer", [SelfContractAddress, tokenId])
+    assert (res and res == b'\x01'), "Asset transfer failed"
+
+    res = Invoke(0, CrossChainContractAddress, "createCrossChainTx", args)
+    assert (res and res == b'\x01'), "createCrossChainTx failed"
+
+    Notify(["lock", operator, fromAssetHash, fromAddress, toProxyHash, toAddress, toChainId, tokenId])
     LockEvent(fromAssetHash, fromAddress, toProxyHash, toAddress, toChainId, tokenId)
     return True
 
@@ -255,8 +262,8 @@ def unlock(params, fromContractAddr, fromChainId):
     owner = DynamicAppCall(assetHash, "ownerOf", tokenId)
     if owner != ZeroAddress:
         assert owner == SelfContractAddress, "Asset unlock failed for invalid owner"
-        res = DynamicAppCall(assetHash, "safeTransferFrom", [SelfContractAddress, address, tokenId])
-        assert (res and res == b'\x01'), "safeTransferFrom failed"
+        res = DynamicAppCall(assetHash, "transfer", [address, tokenId])
+        assert (res and res == b'\x01'), "transfer failed"
     else:
         res = DynamicAppCall(assetHash, "mintWithURI", [address, tokenId, tokenURI])
         assert (res and res == b'\x01'), "mintWithURI failed"
