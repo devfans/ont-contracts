@@ -376,4 +376,4 @@ def getApprovalForAll(owner, operator):
     :return: True or False
     """
     res = Get(ownerApprovalKey(owner, operator))
-    return res and res == b'\x00'
+    return res and res == b'\x01'
