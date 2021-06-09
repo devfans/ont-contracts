@@ -35,10 +35,68 @@ TransferEvent = RegisterAction("transfer", "from", "to", "tokenId")
 ApprovalEvent = RegisterAction("approval", "from", "to", "tokenId")
 
 def Main(operation, args):
-    return True
+    if operation == 'init':
+        return init()
+    if operation == 'name':
+        return name()
+    if operation == 'symbol':
+        return symbol()
+    if operation == 'totalSupply':
+        return totalSupply()
+    if operation == 'balanceOf':
+        assert len(args) == 1, "Invalid args length for balanceOf"
+        acct = args[0]
+        return balanceOf(acct)
+    if operation == "tokenOf":
+        # TODO: ?
+        # return tokenOf()
+        pass
+    if operation == 'transfer':
+        assert len(args) == 3, "Invalid args length for transfer"
+        fromAddress = args[0]
+        toAddress = args[1]
+        tokenId = args[2]
+        return transfer(fromAddress, toAddress, tokenId)
+    if operation == 'tansferFrom':
+        assert len(args) == 4, "Invalid args length for transferFrom"
+        spender = args[0]
+        fromAddress = args[1]
+        toAddress = args[2]
+        tokenId = args[3]
+        return transferFrom(spender, fromAddress, toAddress, tokenId)
+    if operation == 'transferMulti':
+        return transferMulti(args)
+    if operation == 'tokenURI':
+        assert len(args) == 1, "Invalid args length for tokenURI"
+        return tokenURI(args[0])
+    if operation == "setTokenURI":
+        assert len(args) == 2, "Invalid args length for setTokenURI"
+        return setTokenURI(args[0], args[1])
+    if operation == "setBaseURI":
+        assert len(args) == 1, "Invalid args length for setBaseURI"
+        return setBaseURI(args[0])
+    if operation == "baseURI":
+        return baseURI()
+    if operation == "transferOwnerShip":
+        assert len(args) == 1, "Invalid args length for transferOwnerShip"
+        return transferOwnerShip(args[0])
+    if operation == "queryTokenByID":
+        assert len(args) == 1, "Invalid args length for queryTokenByID"
+        return queryTokenByID(args[0])
+    if operation == "queryTokenIDByIndex":
+        assert len(args) == 1, "Invalid args length for queryTokenIDByIndex"
+        return queryTokenIDByIndex(args[0])
+    if operation == 'approve':
+        assert len(args) == 3, "Invalid args length for approve"
+        owner = args[0]
+        spender = args[1]
+        amount = args[2]
+        return approve(owner, spender, amount)
+    return False
+
 
 def init():
-    assert CheckWitness(Operator)
+    assert CheckWitness(Operator), "Invalid witness"
     assert len(getOwner()) == 0, "Contract already initialized"
     Put(ctx, OPERATOR_PREFIX, Operator)
     return True
@@ -71,7 +129,7 @@ def balanceOf(owner):
 
 def transferOwnerShip(newOwner):
     oldOwner = getOwner()
-    assert CheckWitness(oldOwner)
+    assert CheckWitness(oldOwner), "Invalid witness"
     assert isValidAddress(newOwner)
     Put(ctx, OPERATOR_PREFIX, newOwner)
     TransferOwnershipEvent(oldOwner, newOwner)
@@ -90,7 +148,7 @@ def setBaseURI(baseURI):
     :param baseURI: new base uri
     :return: True
     """
-    assert (CheckWitness(ctx, OPERATOR_PREFIX))
+    assert CheckWitness(ctx, OPERATOR_PREFIX), "Invalid witness"
     Put(ctx, BASE_URI_PREFIX, baseURI)
     Notify(['setBaseURI', baseURI])
     return True
@@ -104,7 +162,6 @@ def tokenExists(tokenId):
     if not Get(ctx, concat(TOKEN_OWNER_PREFIX, tokenId)):
         raise Exception("Token does not exist")
     return True
-
 
 def tokenURI (tokenId):
     """
@@ -222,6 +279,43 @@ def queryTokenByID(tokenId):
     type = info['Type']
     return [id, name, image, type]
 
+def takeOwnership(toAddress, tokenId):
+    """
+    transfer the approved tokenId token to toAddress
+    the invoker can be the owner or the approved account
+    toAddress can be any address
+    :param toAddress: the account that will be assigned as the new owner of tokenId
+    :param tokenId: the tokenId token will be assigned to toAddress
+    :return: True or raise exception
+    """
+
+    tokenOwner = ownerOf(tokenId)
+    assert isValidAddress(toAddress)
+    assert isValidAddress(tokenOwner)
+
+    approveKey = concat(APPROVE_PREFIX, tokenId)
+    approvedAcct = Get(ctx, approveKey)
+
+    assert (CheckWitness(tokenOwner) or CheckWitness(approvedAcct)), "Invalid witness"
+    Delete(ctx, approveKey)
+
+    fromBalance = balanceOf(tokenOwner)
+    toBalance = balanceOf(toAddress)
+
+    # to avoid overflow
+    assert (fromBalance >= 1 and toBalance < toBalance + 1), "Invalid account balance or overflow"
+    ownerKey = concat(TOKEN_OWNER_PREFIX, tokenId)
+    Put(ctx, ownerKey, toAddress)
+
+    Put(ctx, concat(OWNER_BALANCE_PREFIX, tokenOwner), fromBalance - 1)
+    Put(ctx, concat(OWNER_BALANCE_PREFIX, toAddress), toBalance + 1)
+
+    Notify(['transfer', tokenOwner, toAddress, tokenId])
+    return True
+
+def transferFrom(spender, fromAddress, toAddress, tokenId):
+    return True
+
 def transfer(toAddress, tokenId):
     """
     transfer the token with tokenId to the toAddress
@@ -230,25 +324,25 @@ def transfer(toAddress, tokenId):
     :return: False means failure, True means success.
     """
     tokenOwner = ownerOf(tokenId)
-    if CheckWitness(tokenOwner) == False:
-        return False
+    assert CheckWitness(tokenOwner), "Invalid owner witness"
     assert isValidAddress(toAddress)
 
     ownerKey = concat(TOKEN_OWNER_PREFIX, tokenId)
     fromAcct = Get(ctx, ownerKey)
-    balanceKey = concat(OWNER_BALANCE_PREFIX, fromAcct)
-    fromBalance = Get(ctx, balanceKey)
-    if fromBalance >= 1:
-        # decrease fromAccount token balance
-        Put(ctx, balanceKey, fromBalance - 1)
-    else:
-        raise Exception('fromBalance error')
+
+    # Check balance
+    fromBalanceKey = concat(OWNER_BALANCE_PREFIX, fromAcct)
+    toBalanceKey = concat(OWNER_BALANCE_PREFIX, toAddress)
+    fromBalance = Get(ctx, fromBalanceKey)
+    toBalance = Get(ctx, toBalanceKey)
+    assert (fromBalance >= 1 and toBalance < toBalance + 1), "Invalid account balance or overflow"
+
+    Delete(ctx, concat(APPROVE_PREFIX, tokenId))
+    Put(ctx, fromBalanceKey, fromBalance - 1)
+    Put(ctx, toBalanceKey, toBalance + 1)
     # set the owner of tokenID to toAcct
     Put(ctx, ownerKey, toAddress)
-    # increase toAccount token balance
-    balanceKey = concat(OWNER_BALANCE_PREFIX, toAddress)
-    Put(ctx, balanceKey, balanceOf(toAddress) + 1)
-    Delete(ctx, concat(APPROVE_PREFIX, tokenId))
+
     Notify(['transfer', fromAcct, toAddress, tokenId])
     return True
 
