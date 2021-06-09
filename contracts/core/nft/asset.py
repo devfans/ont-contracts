@@ -14,8 +14,9 @@ SYMBOL = "xx"
 
 # Key prefix
 OPERATOR_PREFIX = "Operator"
-APPROVE_PREFIX = "Approve"
-TOKEN_OWNER_PREFIX = "TokenOwner"
+APPROVAL_PREFIX = "Approval"             # token approval: tokenId => operator
+OWNER_APPROVAL_PREFIX = "OwnerApproval"  # owner approval: owner => operator
+TOKEN_OWNER_PREFIX = "TokenOwner"        # Owner of token: token => owner
 TOTAL_SUPPLY_PREFIX = "TotalSupply"
 TOKEN_PREFIX = "Token"
 TOKEN_INDEX_PREFIX = "TokenIndex"
@@ -47,23 +48,27 @@ def Main(operation, args):
         assert len(args) == 1, "Invalid args length for balanceOf"
         acct = args[0]
         return balanceOf(acct)
-    if operation == "tokenOf":
-        # TODO: ?
-        # return tokenOf()
-        pass
+    if operation == "ownerOf":
+        assert len(args) == 1, "Invalid args length for ownerOf"
+        return ownerOf(args[0])
+    if operation == "getApproved":
+        assert len(args) == 1, "Invalid args length for getApproved"
+        return getApproved(args[0])
+    if operation == "clearApproved":
+        assert len(args) == 1, "Invalid args length for clearApproved"
+        return clearApproved(args[0])
+    if operation == "approvalForAll":
+        assert len(args) == 3, "Invalid args length for approvalForAll"
+        return approvalForAll(args[0], args[1], args[2])
+    if operation == "getApprovalForAll":
+        assert len(args) == 2, "Invalid args length for getApprovalForAll"
+        return getApprovalForAll(args[0], args[1])
     if operation == 'transfer':
-        assert len(args) == 3, "Invalid args length for transfer"
-        fromAddress = args[0]
-        toAddress = args[1]
-        tokenId = args[2]
-        return transfer(fromAddress, toAddress, tokenId)
-    if operation == 'tansferFrom':
-        assert len(args) == 4, "Invalid args length for transferFrom"
-        spender = args[0]
-        fromAddress = args[1]
-        toAddress = args[2]
-        tokenId = args[3]
-        return transferFrom(spender, fromAddress, toAddress, tokenId)
+        assert len(args) == 2, "Invalid args length for transfer"
+        return transfer(args[0], args[1])
+    if operation == 'takeOwnerShip':
+        assert len(args) == 2, "Invalid args length for takeOwnership"
+        return takeOwnership(args[0], args[1])
     if operation == 'transferMulti':
         return transferMulti(args)
     if operation == 'tokenURI':
@@ -90,8 +95,8 @@ def Main(operation, args):
         assert len(args) == 3, "Invalid args length for approve"
         owner = args[0]
         spender = args[1]
-        amount = args[2]
-        return approve(owner, spender, amount)
+        tokenId = args[2]
+        return approve(owner, spender, tokenId)
     return False
 
 
@@ -194,7 +199,7 @@ def approve(toAddress, tokenId):
         return False
     assert isValidAddress(toAddress)
 
-    Put(ctx, concat(APPROVE_PREFIX, tokenId), toAddress)
+    Put(ctx, concat(APPROVAL_PREFIX, tokenId), toAddress)
     Notify(['approval', tokenOwner, toAddress, tokenId])
     return True
 
@@ -212,12 +217,22 @@ def ownerOf(tokenId):
 
 def getApproved(tokenId):
     """
-    get the approved address of the token
+    Get the approved address of the token
     :param tokenID:
-    :return:
+    :return: approved address of token
     """
-    key = concat(APPROVE_PREFIX, tokenId)
+    key = concat(APPROVAL_PREFIX, tokenId)
     return Get(ctx, key)
+
+def clearApproved(tokenId):
+    """
+    Remove approval of token
+    :param tokenId: token id
+    :return: True or raise exception
+    """
+    assert CheckWitness(ownerOf(tokenId)), "Invalid token owner witness"
+    Delete(ctx, concat(APPROVAL_PREFIX, tokenId))
+    return True
 
 def totalSupply():
     return Get(ctx, TOTAL_SUPPLY_PREFIX)
@@ -236,7 +251,7 @@ def transferOwnerShip(toAddress, tokenId):
 
     if not tokenOwner:
         return False
-    approveKey = concat(APPROVE_PREFIX, tokenId)
+    approveKey = concat(APPROVAL_PREFIX, tokenId)
     approvedAcct = Get(ctx, approveKey)
 
     if not CheckWitness(tokenOwner) and not CheckWitness(approvedAcct):
@@ -293,7 +308,7 @@ def takeOwnership(toAddress, tokenId):
     assert isValidAddress(toAddress)
     assert isValidAddress(tokenOwner)
 
-    approveKey = concat(APPROVE_PREFIX, tokenId)
+    approveKey = concat(APPROVAL_PREFIX, tokenId)
     approvedAcct = Get(ctx, approveKey)
 
     assert (CheckWitness(tokenOwner) or CheckWitness(approvedAcct)), "Invalid witness"
@@ -311,9 +326,6 @@ def takeOwnership(toAddress, tokenId):
     Put(ctx, concat(OWNER_BALANCE_PREFIX, toAddress), toBalance + 1)
 
     Notify(['transfer', tokenOwner, toAddress, tokenId])
-    return True
-
-def transferFrom(spender, fromAddress, toAddress, tokenId):
     return True
 
 def transfer(toAddress, tokenId):
@@ -337,7 +349,7 @@ def transfer(toAddress, tokenId):
     toBalance = Get(ctx, toBalanceKey)
     assert (fromBalance >= 1 and toBalance < toBalance + 1), "Invalid account balance or overflow"
 
-    Delete(ctx, concat(APPROVE_PREFIX, tokenId))
+    Delete(ctx, concat(APPROVAL_PREFIX, tokenId))
     Put(ctx, fromBalanceKey, fromBalance - 1)
     Put(ctx, toBalanceKey, toBalance + 1)
     # set the owner of tokenID to toAcct
@@ -367,4 +379,35 @@ def isValidAddress(address):
     assert (len(address) == 20 and address != ZeroAddress), "Invalid address"
     return True
 
+def ownerApprovalKey(owner, operator):
+    """
+    Concat the owner approval key with owner and operator
+    :param owner: owner address
+    :param operator: operator address
+    :return: owner approval key
+    """
+    return concat(OWNER_APPROVAL_PREFIX, concat(owner, operator))
 
+def approvalForAll(owner, toAddress, approval):
+    """
+    Grants permission to the toAddress to transfer NFTs on behalf of the owner address.
+    :param owner: owner address
+    :param toAddress: to address
+    :param approval: True for set approval, False for revoke
+    :return: True on success or raise exception
+    """
+    assert isValidAddress(owner)
+    assert isValidAddress(toAddress)
+    assert CheckWitness(owner), "Invalid owner witness"
+    Put(ctx, ownerApprovalKey(owner, toAddress), approval)
+    return True
+
+def getApprovalForAll(owner, operator):
+    """
+    Check owner approval for operator
+    :param owner: owner address
+    :param operator: operator address
+    :return: True or False
+    """
+    res = Get(ownerApprovalKey(owner, operator))
+    return res and res == b'\x00'
