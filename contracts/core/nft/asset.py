@@ -93,10 +93,10 @@ def Main(operation, args):
         return queryTokenIDByIndex(args[0])
     if operation == 'approve':
         assert len(args) == 3, "Invalid args length for approve"
-        owner = args[0]
-        spender = args[1]
-        tokenId = args[2]
-        return approve(owner, spender, tokenId)
+        return approve(args[0], args[1], args[2])
+    if operation == 'mintWithURI':
+        assert len(args) == 3, "Invalid args length for mintWithURI"
+        return mintWithURI(args[0], args[1], args[2])
     return False
 
 
@@ -379,3 +379,38 @@ def getApprovalForAll(owner, operator):
     :return: True or False
     """
     return Get(ctx, ownerApprovalKey(owner, operator)) == 1
+
+def mintWithURI(toAddress, tokenId, tokenURI):
+    """
+    Mint ntf token with tokenId, raise exception if token already exists.
+    :param toAddress: to address
+    :param tokenId: token id
+    :param tokenURI: token uri
+    :return: True or raise exception
+    """
+    assert isValidAddress(toAddress)
+    ownerKey = concat(TOKEN_OWNER_PREFIX, tokenId)
+    assert (not Get(ctx, ownerKey)), "Token already exist"
+
+    # Increase total supply, set token index
+    totalSupply = Get(ctx, TOTAL_SUPPLY_PREFIX)
+    idx = totalSupply + 1
+    assert totalSupply < idx, "total supply overflow"
+    Put(ctx, TOTAL_SUPPLY_PREFIX, idx)
+    Put(ctx, concat(TOKEN_INDEX_PREFIX, idx), tokenId)
+    Put(ctx, concat(TOKEN_URI_PREFIX, tokenId), tokenURI)
+    Put(ctx, ownerKey, toAddress)
+
+    # Set token property
+    '''
+    info = {
+        "ID": tokenId,
+        "Name": "name",
+        "Image": "image",
+        "Type": "type"
+    }
+    Put(ctx, concat(TOKEN_PREFIX, tokenId), Serialize(info))
+    '''
+
+    Notify(['mintWithURI', tokenId, tokenURI])
+    return True

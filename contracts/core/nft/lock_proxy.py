@@ -209,10 +209,9 @@ def isValidAddress(address):
     return True
 
 
-def onERC721Received(operator, fromAddress, tokenId, params):
+def lock(fromAddress, tokenId, params):
     """
     On erc721 asset received, trigger the cross chain contract call.
-    :param operator: operator address
     :param fromAddress: from address
     :pram tokenId: token id
     :param params: argument list [assetHash, address, tokenId, tokenURI]
@@ -239,7 +238,7 @@ def onERC721Received(operator, fromAddress, tokenId, params):
     res = Invoke(0, CrossChainContractAddress, "createCrossChainTx", args)
     assert (res and res == b'\x01'), "createCrossChainTx failed"
 
-    Notify(["lock", operator, fromAssetHash, fromAddress, toProxyHash, toAddress, toChainId, tokenId])
+    Notify(["lock", fromAssetHash, fromAddress, toProxyHash, toAddress, toChainId, tokenId])
     LockEvent(fromAssetHash, fromAddress, toProxyHash, toAddress, toChainId, tokenId)
     return True
 
@@ -270,6 +269,15 @@ def unlock(params, fromContractAddr, fromChainId):
 
     UnlockEvent(assetHash, address, tokenId)
     return True
+
+def _serializeCallData(args):
+    assert len(args) == 2, "Invalid args length"
+    # address
+    buf = WriteVarBytes(args[0], None)
+    # chain Id
+    buf = WriteUint64(args[2], buf)
+
+    return buf
 
 def _deserializeCallData(buf):
     offset = 0
