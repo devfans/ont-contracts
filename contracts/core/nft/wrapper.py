@@ -53,10 +53,10 @@ def Main(operation, args):
     if operation == "ifPause":
         return ifPause()
     if operation == "lock":
-        assert len(args) == 8, "Invalid args length for lock"
+        assert (len(args) == 8)
         return lock(args[0], args[1], args[2], args[3], args[4], args[5], args[6], args[7])
     if operation == "speedUp":
-        assert len(args) == 4, "Invalid args length for speedUp"
+        assert (len(args) == 4)
         return speedUp(args[0], args[1], args[2], args[3])
     if operation == "transferOwnership":
         assert (len(args) == 1)
@@ -138,34 +138,34 @@ def lock(fromAddress, fromAsset, toChainId, toAddress, tokenId, feeToken, fee, i
     :param id:
     :return: True or raise exception
     """
-    assert CheckWitness(fromAddress), "Invalid from address witness"
-    assert (not ifPause()), "Contract paused"
+    assert CheckWitness(fromAddress)
+    assert (not ifPause())
     assert isValidAddress(toAddress)
-    assert (feeToken == ONGAddress), "Fee token should be ONG"
-    assert (toChainId != OntChainIdOnPoly), "Target chain can not be ONT"
-    assert (fee > 0), "Fee should not be zero"
+    assert (feeToken == ONGAddress)
+    assert (toChainId != OntChainIdOnPoly)
+    assert (fee > 0)
 
     lockProxy = getLockProxy()
     toAssethash = DynamicAppCall(lockProxy, 'getAssetHash', [fromAsset, toChainId])
-    assert (len(toAssethash) == 20), "No toAssetHash bound"
+    assert (len(toAssethash) == 20)
 
     # transfer fee to fee collector
     feeCollector = getFeeCollector()
     assert isValidAddress(feeCollector)
 
     owner = DynamicAppCall(fromAsset, "ownerOf", [tokenId])
-    assert (isValidAddress(owner) and owner == fromAddress), "Invalid owner address"
+    assert (isValidAddress(owner) and owner == fromAddress)
 
     # approve and transfer fee
     res = DynamicAppCall(fromAsset, "approve", [lockProxy, tokenId])
-    assert (res and res == b'\x01'), "nft token approve failed"
+    assert (res and res == b'\x01')
     param = state(fromAddress, feeCollector, fee)
     res = Invoke(0, feeToken, 'transfer', [param])
-    assert (res and res == b'\x01'), "Fee transfer failed"
+    assert (res and res == b'\x01')
 
     params = _serializeCallData([toAddress, toChainId])
     res = DynamicAppCall(lockProxy, 'lock', [fromAddress, tokenId, params])
-    assert (res and res == b'\x01'), "lockProxy failed"
+    assert (res and res == b'\x01')
 
     PolyWrapperLock(fromAsset, fromAddress, toChainId, toAddress, tokenId, feeToken, fee, id)
     return True
@@ -179,8 +179,8 @@ def speedUp(fromAddress, feeToken, txHash, fee):
     :param fee: fee amount
     :return: True or raise exception
     """
-    assert CheckWitness(fromAddress), "Invalid witness"
-    assert (feeToken == ONGAddress), "Fee token should be ONG"
+    assert CheckWitness(fromAddress)
+    assert (feeToken == ONGAddress)
 
     # transfer fee to fee collector
     feeCollector = getFeeCollector()
@@ -188,7 +188,7 @@ def speedUp(fromAddress, feeToken, txHash, fee):
 
     param = state(fromAddress, feeCollector, fee)
     res = Invoke(0, feeToken, 'transfer', [param])
-    assert (res and res == b'\x01'), "Fee transfer failed"
+    assert (res and res == b'\x01')
     PolyWrapperSpeedUp(feeToken, txHash, fromAddress, fee)
     return True
 
@@ -209,12 +209,12 @@ def isValidAddress(address):
     :param address: address
     :return: True or raise exception
     """
-    assert (len(address) == 20 and address != Z), "Invalid address"
+    assert (len(address) == 20 and address != ZeroAddress)
     return True
 
 
 def _serializeCallData(args):
-    assert len(args) == 2, "Invalid args length"
+    assert (len(args) == 2)
     # address
     buf = WriteVarBytes(args[0], None)
     # chain Id
