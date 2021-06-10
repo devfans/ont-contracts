@@ -37,40 +37,40 @@ def Main(operation, args):
     if operation == "init":
         return init()
     if operation == "bindProxyHash":
-        assert len(args) == 2, "Invalid args length for bindProxyHash"
+        assert (len(args) == 2)
         toChainId = args[0]
         targetProxyHash = args[1]
         return bindProxyHash(toChainId, targetProxyHash)
     if operation == "bindAssetHash":
-        assert len(args) == 3, "Invalid args length for bindAssetHash"
+        assert len(args) == 3
         fromAssetHash = args[0]
         toChainId = args[1]
         toAssetHash = args[2]
         return bindAssetHash(fromAssetHash, toChainId, toAssetHash)
     if operation == "getProxyHash":
-        assert len(args) == 1, "Invalid args length for getProxyHash"
+        assert len(args) == 1
         toChainId = args[0]
         return getProxyHash(toChainId)
     if operation == "getAssetHash":
-        assert len(args) == 2, "Invalid args length for getAssetHash"
+        assert len(args) == 2
         fromAssetHash = args[0]
         toChainId = args[1]
         return getAssetHash(fromAssetHash, toChainId)
     if operation == "unlock":
-        assert len(args) == 3, "Invalid args length for unlock"
+        assert len(args) == 3
         params = args[0]
         fromContractAddr = args[1]
         fromChainId = args[2]
         return unlock(params, fromContractAddr, fromChainId)
     if operation == "getBalanceFor":
-        assert len(args)  == 1, "Invalid args length for getBalanceFor"
+        assert len(args) == 1
         return getBalanceFor(args[0])
     if operation == "removeFromAssetHash":
-        assert len(args) == 1, "Invalid args length for removeFromAssetHash"
+        assert len(args) == 1
         index = args[0]
         return removeFromAssetHash(index)
     if operation == "addFromAssetHash":
-        assert len(args) == 1, "Invalid args length for addFromAssetHash"
+        assert len(args) == 1
         fromAssetHash = args[0]
         return addFromAssetHash(fromAssetHash)
     return False
@@ -80,7 +80,7 @@ def init():
     """
     Set initial contract operator
     """
-    assert len(Get(ctx, OPERATOR_PREFIX)) == 0, "Contract already initialized"
+    assert len(Get(ctx, OPERATOR_PREFIX)) == 0
     Put(ctx, OPERATOR_PREFIX, Operator)
     return True
 
@@ -91,7 +91,7 @@ def transferOperator(newOperator):
     :return: True
     """
     oldOperator = Get(ctx, OPERATOR_PREFIX)
-    assert CheckWitness(oldOperator), "Invalid witness"
+    assert CheckWitness(oldOperator)
     assert isValidAddress(newOperator)
     Put(ctx, OPERATOR_PREFIX, newOperator)
     TransferOperatorEvent(oldOperator, newOperator)
@@ -114,7 +114,7 @@ def addFromAssetHash(fromAssetHash):
     :param fromAssetHash: source asset hash
     :return: True
     """
-    assert CheckWitness(Get(ctx, OPERATOR_PREFIX)), "Invalid contract operator"
+    assert CheckWitness(Get(ctx, OPERATOR_PREFIX))
 
     data = Get(ctx, ASSET_LIST_PREFIX)
     if not data:
@@ -133,7 +133,7 @@ def removeFromAssetHash(assetHash):
     :param assetHash: source asset hash
     :return: True
     """
-    assert CheckWitness(Get(ctx, OPERATOR_PREFIX)), "Invalid contract operator"
+    assert CheckWitness(Get(ctx, OPERATOR_PREFIX))
 
     data = Get(ctx, ASSET_LIST_PREFIX)
     if not data:
@@ -163,7 +163,7 @@ def bindAssetHash(fromAssetHash, toChainId, toAssetHash):
     :param toAssetHash: target asset hash
     :return: True
     """
-    assert CheckWitness(Get(ctx, OPERATOR_PREFIX)), "Invalid contract operator"
+    assert CheckWitness(Get(ctx, OPERATOR_PREFIX))
     assert addFromAssetHash(fromAssetHash)
     Put(ctx, concat(ASSET_HASH_PREFIX, concat(fromAssetHash, toChainId)), toAssetHash)
     curBalance = getBalanceFor(fromAssetHash)
@@ -186,7 +186,7 @@ def bindProxyHash(chainId, targetProxyHash):
     :param targetProxyHash: proxy hash
     :return: True
     """
-    assert CheckWitness(ctx, OPERATOR_PREFIX), "Invalid operator"
+    assert CheckWitness(Get(ctx, OPERATOR_PREFIX))
     Put(ctx, concat(PROXY_HASH_PREFIX, chainId), targetProxyHash)
     return True
 
@@ -205,7 +205,7 @@ def isValidAddress(address):
     :param address: address
     :return: True or raise exception
     """
-    assert (len(address) == 20 and address != ZeroAddress), "Invalid address"
+    assert (len(address) == 20 and address != ZeroAddress)
     return True
 
 
@@ -218,13 +218,13 @@ def lock(fromAddress, tokenId, params):
     :return: True or raise exception
     """
     fromAssetHash = GetCallingScriptHash()
-    assert CheckWitness(fromAddress), "Invalid witness"
+    assert CheckWitness(fromAddress)
     toAddress, toChainId = _deserializeCallData(params)
     assert isValidAddress(toAddress)
 
     toAssetHash = getAssetHash(fromAssetHash, toChainId)
     owner = DynamicAppCall(fromAssetHash, "ownerOf", tokenId)
-    assert (owner == SelfContractAddress), "wrong owner for this token ID"
+    assert (owner == SelfContractAddress)
 
     tokenURI = DynamicAppCall(fromAssetHash, "UriOf", tokenId)
     toProxyHash = getProxyHash(toChainId)
@@ -233,10 +233,10 @@ def lock(fromAddress, tokenId, params):
 
     # Lock the nft token
     res = DynamicAppCall(fromAssetHash, "transfer", [SelfContractAddress, tokenId])
-    assert (res and res == b'\x01'), "Asset transfer failed"
+    assert (res and res == b'\x01')
 
     res = Invoke(0, CrossChainContractAddress, "createCrossChainTx", args)
-    assert (res and res == b'\x01'), "createCrossChainTx failed"
+    assert (res and res == b'\x01')
 
     Notify(["lock", fromAssetHash, fromAddress, toProxyHash, toAddress, toChainId, tokenId])
     LockEvent(fromAssetHash, fromAddress, toProxyHash, toAddress, toChainId, tokenId)
@@ -251,27 +251,32 @@ def unlock(params, fromContractAddr, fromChainId):
     :param: fromChainId: source chain id on poly network
     :returns:
     """
-    assert CheckWitness(CrossChainContractAddress), "Invalid witness"
-    assert getProxyHash(fromChainId) == fromContractAddr, "Invalid chain proxy contract address"
+    assert CheckWitness(CrossChainContractAddress)
+    assert getProxyHash(fromChainId) == fromContractAddr
 
-    assetHash, address, tokenId, tokenURI = _deserializeArgs(params)
+    data = _deserializeArgs(params)
+    assert len(data) == 4
+    assetHash = data[0]
+    address = data[1]
+    tokenId = data[2]
+    tokenURI = data[3]
     assert isValidAddress(assetHash)
     assert isValidAddress(address)
 
     owner = DynamicAppCall(assetHash, "ownerOf", tokenId)
     if owner != ZeroAddress:
-        assert owner == SelfContractAddress, "Asset unlock failed for invalid owner"
+        assert owner == SelfContractAddress
         res = DynamicAppCall(assetHash, "transfer", [address, tokenId])
-        assert (res and res == b'\x01'), "transfer failed"
+        assert (res and res == b'\x01')
     else:
         res = DynamicAppCall(assetHash, "mintWithURI", [address, tokenId, tokenURI])
-        assert (res and res == b'\x01'), "mintWithURI failed"
+        assert (res and res == b'\x01')
 
     UnlockEvent(assetHash, address, tokenId)
     return True
 
 def _serializeCallData(args):
-    assert len(args) == 2, "Invalid args length"
+    assert len(args) == 2
     # address
     buf = WriteVarBytes(args[0], None)
     # chain Id
@@ -290,7 +295,7 @@ def _deserializeCallData(buf):
 
 
 def _serializeArgs(args):
-    assert len(args) == 4, "Invalid args length"
+    assert len(args) == 4
 
     # asset hash
     buf = WriteVarBytes(args[0], None)
