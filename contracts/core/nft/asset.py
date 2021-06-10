@@ -364,10 +364,11 @@ def approvalForAll(owner, toAddress, approval):
     assert isValidAddress(owner)
     assert isValidAddress(toAddress)
     assert CheckWitness(owner), "Invalid owner witness"
-    value = 0
     if approval:
-        value = 1
-    Put(ctx, ownerApprovalKey(owner, toAddress), value)
+        Put(ctx, ownerApprovalKey(owner, toAddress), 1)
+    else:
+        Delete(ctx, ownerApprovalKey(owner, toAddress))
+
     ApprovalForAllEvent(owner, toAddress, approval)
     return True
 
@@ -412,5 +413,5 @@ def mintWithURI(toAddress, tokenId, tokenURI):
     Put(ctx, concat(TOKEN_PREFIX, tokenId), Serialize(info))
     '''
 
-    Notify(['mintWithURI', tokenId, tokenURI])
+    Notify(['mintWithURI', toAddress, tokenId, tokenURI])
     return True
