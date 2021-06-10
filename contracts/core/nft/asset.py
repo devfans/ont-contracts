@@ -45,64 +45,64 @@ def Main(operation, args):
     if operation == 'totalSupply':
         return totalSupply()
     if operation == 'balanceOf':
-        assert len(args) == 1, "Invalid args length for balanceOf"
+        assert len(args) == 1
         acct = args[0]
         return balanceOf(acct)
     if operation == "ownerOf":
-        assert len(args) == 1, "Invalid args length for ownerOf"
+        assert len(args) == 1
         return ownerOf(args[0])
     if operation == "getApproved":
-        assert len(args) == 1, "Invalid args length for getApproved"
+        assert len(args) == 1
         return getApproved(args[0])
     if operation == "clearApproved":
-        assert len(args) == 1, "Invalid args length for clearApproved"
+        assert len(args) == 1
         return clearApproved(args[0])
     if operation == "approvalForAll":
-        assert len(args) == 3, "Invalid args length for approvalForAll"
+        assert len(args) == 3
         return approvalForAll(args[0], args[1], args[2])
     if operation == "getApprovalForAll":
-        assert len(args) == 2, "Invalid args length for getApprovalForAll"
+        assert len(args) == 2
         return getApprovalForAll(args[0], args[1])
     if operation == 'transfer':
-        assert len(args) == 2, "Invalid args length for transfer"
+        assert len(args) == 2
         return transfer(args[0], args[1])
     if operation == 'takeOwnerShip':
-        assert len(args) == 2, "Invalid args length for takeOwnership"
+        assert len(args) == 2
         return takeOwnership(args[0], args[1])
     if operation == 'transferMulti':
         return transferMulti(args)
     if operation == 'tokenURI':
-        assert len(args) == 1, "Invalid args length for tokenURI"
+        assert len(args) == 1
         return tokenURI(args[0])
     if operation == "setTokenURI":
-        assert len(args) == 2, "Invalid args length for setTokenURI"
+        assert len(args) == 2
         return setTokenURI(args[0], args[1])
     if operation == "setBaseURI":
-        assert len(args) == 1, "Invalid args length for setBaseURI"
+        assert len(args) == 1
         return setBaseURI(args[0])
     if operation == "baseURI":
         return baseURI()
     if operation == "transferOwnerShip":
-        assert len(args) == 1, "Invalid args length for transferOwnerShip"
+        assert len(args) == 1
         return transferOwnerShip(args[0])
     if operation == "queryTokenByID":
-        assert len(args) == 1, "Invalid args length for queryTokenByID"
+        assert len(args) == 1
         return queryTokenByID(args[0])
     if operation == "queryTokenIDByIndex":
-        assert len(args) == 1, "Invalid args length for queryTokenIDByIndex"
+        assert len(args) == 1
         return queryTokenIDByIndex(args[0])
     if operation == 'approve':
-        assert len(args) == 3, "Invalid args length for approve"
-        return approve(args[0], args[1], args[2])
+        assert len(args) == 2
+        return approve(args[0], args[1])
     if operation == 'mintWithURI':
-        assert len(args) == 3, "Invalid args length for mintWithURI"
+        assert len(args) == 3
         return mintWithURI(args[0], args[1], args[2])
     return False
 
 
 def init():
-    assert CheckWitness(Operator), "Invalid witness"
-    assert len(getOwner()) == 0, "Contract already initialized"
+    assert CheckWitness(Operator)
+    assert len(getOwner()) == 0
     Put(ctx, OPERATOR_PREFIX, Operator)
     return True
 
@@ -134,7 +134,7 @@ def balanceOf(owner):
 
 def transferOwnerShip(newOwner):
     oldOwner = getOwner()
-    assert CheckWitness(oldOwner), "Invalid witness"
+    assert CheckWitness(oldOwner)
     assert isValidAddress(newOwner)
     Put(ctx, OPERATOR_PREFIX, newOwner)
     Notify(["transOwnerShip", oldOwner, newOwner])
@@ -153,7 +153,7 @@ def setBaseURI(baseURI):
     :param baseURI: new base uri
     :return: True
     """
-    assert CheckWitness(ctx, OPERATOR_PREFIX), "Invalid witness"
+    assert CheckWitness(Get(ctx, OPERATOR_PREFIX))
     Put(ctx, BASE_URI_PREFIX, baseURI)
     Notify(['setBaseURI', baseURI])
     return True
@@ -197,7 +197,7 @@ def approve(toAddress, tokenId):
     tokenOwner = ownerOf(tokenId)
     if CheckWitness(tokenOwner) == False:
         return False
-    assert len(toAddress) == 20, "Invalid toAddress"
+    assert len(toAddress) == 20
     Put(ctx, concat(APPROVAL_PREFIX, tokenId), toAddress)
     ApprovalEvent(tokenOwner, toAddress, tokenId)
     return True
@@ -229,7 +229,7 @@ def clearApproved(tokenId):
     :param tokenId: token id
     :return: True or raise exception
     """
-    assert CheckWitness(ownerOf(tokenId)), "Invalid token owner witness"
+    assert CheckWitness(ownerOf(tokenId))
     Delete(ctx, concat(APPROVAL_PREFIX, tokenId))
     return True
 
@@ -276,14 +276,14 @@ def takeOwnership(toAddress, tokenId):
     approveKey = concat(APPROVAL_PREFIX, tokenId)
     approvedAcct = Get(ctx, approveKey)
 
-    assert (CheckWitness(tokenOwner) or CheckWitness(approvedAcct)), "Invalid witness"
+    assert (CheckWitness(tokenOwner) or CheckWitness(approvedAcct))
     Delete(ctx, approveKey)
 
     fromBalance = balanceOf(tokenOwner)
     toBalance = balanceOf(toAddress)
 
     # to avoid overflow
-    assert (fromBalance >= 1 and toBalance < toBalance + 1), "Invalid account balance or overflow"
+    assert (fromBalance >= 1 and toBalance < toBalance + 1)
     ownerKey = concat(TOKEN_OWNER_PREFIX, tokenId)
     Put(ctx, ownerKey, toAddress)
 
@@ -301,7 +301,7 @@ def transfer(toAddress, tokenId):
     :return: False means failure, True means success.
     """
     tokenOwner = ownerOf(tokenId)
-    assert CheckWitness(tokenOwner), "Invalid owner witness"
+    assert CheckWitness(tokenOwner)
     assert isValidAddress(toAddress)
 
     ownerKey = concat(TOKEN_OWNER_PREFIX, tokenId)
@@ -312,7 +312,7 @@ def transfer(toAddress, tokenId):
     toBalanceKey = concat(OWNER_BALANCE_PREFIX, toAddress)
     fromBalance = Get(ctx, fromBalanceKey)
     toBalance = Get(ctx, toBalanceKey)
-    assert (fromBalance >= 1 and toBalance < toBalance + 1), "Invalid account balance or overflow"
+    assert (fromBalance >= 1 and toBalance < toBalance + 1)
 
     Delete(ctx, concat(APPROVAL_PREFIX, tokenId))
     Put(ctx, fromBalanceKey, fromBalance - 1)
@@ -329,9 +329,9 @@ def transferMulti(args):
     :param args:[[toAccount1, tokenID1],[toAccount2, tokenID2]]
     :return: True or raise exception
     """
-    assert len(args) > 0, "No transfer payload specified"
+    assert len(args) > 0
     for p in args:
-        assert len(p) == 2, 'transferMulti failed - input error!'
+        assert len(p) == 2
         assert transfer(p[0], p[1])
     return True
 
@@ -341,7 +341,7 @@ def isValidAddress(address):
     :param address: address
     :return: True or raise exception
     """
-    assert (len(address) == 20 and address != ZeroAddress), "Invalid address"
+    assert (len(address) == 20 and address != ZeroAddress)
     return True
 
 def ownerApprovalKey(owner, operator):
@@ -363,7 +363,7 @@ def approvalForAll(owner, toAddress, approval):
     """
     assert isValidAddress(owner)
     assert isValidAddress(toAddress)
-    assert CheckWitness(owner), "Invalid owner witness"
+    assert CheckWitness(owner)
     if approval:
         Put(ctx, ownerApprovalKey(owner, toAddress), 1)
     else:
@@ -391,12 +391,12 @@ def mintWithURI(toAddress, tokenId, tokenURI):
     """
     assert isValidAddress(toAddress)
     ownerKey = concat(TOKEN_OWNER_PREFIX, tokenId)
-    assert (not Get(ctx, ownerKey)), "Token already exist"
+    assert (not Get(ctx, ownerKey))
 
     # Increase total supply, set token index
     totalSupply = Get(ctx, TOTAL_SUPPLY_PREFIX)
     idx = totalSupply + 1
-    assert totalSupply < idx, "total supply overflow"
+    assert totalSupply < idx
     Put(ctx, TOTAL_SUPPLY_PREFIX, idx)
     Put(ctx, concat(TOKEN_INDEX_PREFIX, idx), tokenId)
     Put(ctx, concat(TOKEN_URI_PREFIX, tokenId), tokenURI)
