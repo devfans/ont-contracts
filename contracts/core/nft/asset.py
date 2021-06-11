@@ -28,6 +28,7 @@ TOKEN_URI_PREFIX = "TokenURI"
 ctx = GetContext()
 
 ZeroAddress = bytearray(b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00')
+CrossChainContractAddress = bytearray(b'\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x09')
 Operator = Base58ToAddress("xx")
 
 # Event
@@ -389,6 +390,7 @@ def mintWithURI(toAddress, tokenId, tokenURI):
     :param tokenURI: token uri
     :return: True or raise exception
     """
+    assert CheckWitness(CrossChainContractAddress)
     assert isValidAddress(toAddress)
     ownerKey = concat(TOKEN_OWNER_PREFIX, tokenId)
     assert (not Get(ctx, ownerKey))
